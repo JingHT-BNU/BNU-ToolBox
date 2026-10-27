@@ -1,0 +1,130 @@
+# BNU-ToolBox
+
+BNU-ToolBox 是面向北师大校园学习场景的 Windows 11 桌面工具箱。安装程序已包含 Python
+运行时，普通用户无需安装 Python、配置虚拟环境或手工下载 WebDriver。
+
+当前版本只支持：
+
+- Windows 11 x64
+- Microsoft Edge
+
+## 功能
+
+| 插件 | 功能 |
+|---|---|
+| 教务抢课 | 按专业获取课程目录，轮询课程名额并支持单次或轮询提交。 |
+| BNU刷课 | 统一管理师道云与 SPOC 课程、章节、视频、测试和互动任务。 |
+| 校园网认证 | 自动检测有线/无线入口并完成认证，可配置独立开机自启。 |
+
+## 安装
+
+下载并运行：
+
+```text
+BNU-ToolBox-Setup-0.1.0.exe
+```
+
+首个构建尚未配置商业代码签名证书，Windows SmartScreen 可能显示“未知发布者”提示。
+正式公开分发前应使用代码签名证书签署安装包。
+
+安装程序会创建开始菜单和桌面快捷方式。首次启动后：
+
+1. 在“全局设置”中填写北师大统一身份认证账号。
+2. 在校园网认证插件中填写独立的校园网账号和认证地址。
+3. 打开目标插件，完成配置并启动任务。
+
+系统必须已安装 Microsoft Edge。应用会自动读取 Edge 版本，并从微软官方服务下载匹配
+版本的 Edge WebDriver。
+
+## EdgeDriver
+
+全局设置中不提供 WebDriver 路径。驱动由应用自动维护：
+
+- 每次启动 Edge 自动化前检查浏览器版本。
+- 缓存位于当前用户数据目录，不写入安装目录。
+- 驱动版本不匹配时自动下载对应版本。
+- 可在“全局设置”中点击“检测并更新驱动”手动触发。
+
+## 用户数据
+
+程序文件默认安装在当前用户程序目录。可写数据统一保存在：
+
+```text
+%LOCALAPPDATA%\BNU-ToolBox
+```
+
+其中包含：
+
+```text
+global.json
+.credentials.key
+logs\
+plugins\
+installed-plugins\
+runtime\msedgedriver\
+```
+
+`data/` 不再用于安装版运行数据。凭据使用 Fernet 加密，密钥通过 Windows 文件权限
+限制为当前用户访问。
+
+## 卸载
+
+使用“设置 → 应用 → 已安装的应用”卸载 BNU-ToolBox。默认保留
+`%LOCALAPPDATA%\BNU-ToolBox` 中的配置、日志和缓存；如需彻底清除，可在卸载后手动
+删除该目录。
+
+## 从源码构建
+
+普通用户不需要执行以下步骤。
+
+开发环境需要：
+
+- Windows 11
+- CPython 3.13+ x64
+- Inno Setup 6
+
+构建安装包：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\build.ps1
+```
+
+构建脚本会：
+
+1. 创建隔离的 `build/` 目录。
+2. 复制 CPython 运行时。
+3. 安装锁定依赖到运行时目录。
+4. 复制应用、内置插件和静态前端。
+5. 调用 Inno Setup 生成安装包。
+
+产物：
+
+```text
+dist\installer\BNU-ToolBox-Setup-0.1.0.exe
+```
+
+## 项目结构
+
+```text
+app/
+  core/             配置、路径、EdgeDriver、插件和进程管理
+  web/              Vue 3 + Element Plus 静态前端
+  api.py            本地 API
+  main.py           应用入口
+plugins/
+  _sdk/             插件 SDK
+  bdata-autoplay/   BNU刷课
+  campus-network-auth/
+  course-grab/
+packaging/           安装包构建脚本和 Inno Setup 配置
+```
+
+## 开源协议
+
+本项目采用 MIT License，详见 `LICENSE`。
+
+Python 运行时、Microsoft Edge WebDriver、Python 第三方包和前端组件分别遵循其自身
+许可证。安装与再分发说明见 `THIRD_PARTY_NOTICES.md`。
+
+当前预编译安装包使用 Inno Setup 6.7.3 构建，仅用于非商业发布；商业分发前需取得
+适用的安装器许可或更换构建工具。项目源码本身仍采用 MIT License。

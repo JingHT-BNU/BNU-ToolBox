@@ -36,8 +36,8 @@ The bundled Python environment includes open-source packages, including:
 - requests — Apache-2.0
 - python-multipart — Apache-2.0
 
-Transitive dependencies retain their own licenses. Release builds should retain
-the `dist-info` license files under the bundled `site-packages` directory.
+Transitive dependencies retain their own licenses. Their license files are
+included under the bundled `site-packages` directory.
 
 ## Web Frontend
 
@@ -45,16 +45,16 @@ the `dist-info` license files under the bundled `site-packages` directory.
 - Element Plus 2.14.6 — MIT
 - Element Plus Icons Vue 2.3.2 — MIT
 
-The complete license texts are shipped under `app/web/vendor/licenses/` and
-must remain in release builds.
+The complete license texts are included in distributed packages under
+`app/web/vendor/licenses/`.
 
 ## Build Tools
 
-Release installers are built with Inno Setup 6.7.3. Inno Setup is
-copyrighted by Jordan Russell and Martijn Laan. The installed compiler
-identifies this edition as non-commercial use only; treat the generated
-installer accordingly unless appropriate commercial terms are obtained.
-The project's source license does not override Inno Setup's terms.
+Distributed installers are built with Inno Setup 6.7.3. Inno Setup is
+copyrighted by Jordan Russell and Martijn Laan. This edition is designated
+for non-commercial use; other uses require appropriate terms from the
+Inno Setup licensor. The project's source license does not override the
+installer's terms.
 
 - Inno Setup: <https://jrsoftware.org/isinfo.php>
 - License: <https://jrsoftware.org/files/is/license.txt>
@@ -63,5 +63,4 @@ The project's source license does not override Inno Setup's terms.
 
 Built-in plugins are part of this repository and are distributed under the
 project's MIT license unless a plugin states otherwise. Dynamically installed
-third-party plugins are the responsibility of their respective authors and must
-include their own license information.
+third-party plugins remain subject to their respective authors' license terms.

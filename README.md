@@ -18,14 +18,11 @@ BNU-ToolBox 是面向北师大校园学习场景的 Windows 11 桌面工具箱�
 
 ## 安装
 
-下载并运行：
+从 [GitHub Releases](https://github.com/JingHT-BNU/BNU-ToolBox/releases/latest)
+下载最新版安装包并运行。
 
-```text
-BNU-ToolBox-Setup-0.1.0.exe
-```
-
-首个构建尚未配置商业代码签名证书，Windows SmartScreen 可能显示“未知发布者”提示。
-正式公开分发前应使用代码签名证书签署安装包。
+安装包尚未配置代码签名证书，Windows 可能显示“未知发布者”。出现此提示时，可选择
+“更多信息”后继续安装。
 
 安装程序会创建开始菜单和桌面快捷方式。首次启动后：
 
@@ -53,7 +50,7 @@ BNU-ToolBox-Setup-0.1.0.exe
 %LOCALAPPDATA%\BNU-ToolBox
 ```
 
-其中包含：
+该目录包含：
 
 ```text
 global.json
@@ -64,8 +61,7 @@ installed-plugins\
 runtime\msedgedriver\
 ```
 
-`data/` 不再用于安装版运行数据。凭据使用 Fernet 加密，密钥通过 Windows 文件权限
-限制为当前用户访问。
+凭据使用 Fernet 加密，密钥通过 Windows 文件权限限制为当前用户访问。
 
 ## 卸载
 
@@ -75,7 +71,7 @@ runtime\msedgedriver\
 
 ## 从源码构建
 
-普通用户不需要执行以下步骤。
+本节面向参与源码构建的开发者。
 
 开发环境需要：
 
@@ -126,5 +122,5 @@ packaging/           安装包构建脚本和 Inno Setup 配置
 Python 运行时、Microsoft Edge WebDriver、Python 第三方包和前端组件分别遵循其自身
 许可证。安装与再分发说明见 `THIRD_PARTY_NOTICES.md`。
 
-当前预编译安装包使用 Inno Setup 6.7.3 构建，仅用于非商业发布；商业分发前需取得
-适用的安装器许可或更换构建工具。项目源码本身仍采用 MIT License。
+预编译安装包使用 Inno Setup 6.7.3 构建，遵循该版本的非商业使用许可。项目源码采用
+MIT License。

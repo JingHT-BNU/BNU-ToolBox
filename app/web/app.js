@@ -725,7 +725,7 @@
   <!-- 侧边栏 -->
   <aside class="sidebar">
     <div class="brand">
-      <div class="logo">B</div>
+      <img class="logo" src="/assets/bnu-toolbox.svg" alt="">
       <div>BNU-ToolBox 工具集<small>大学生活自动化</small></div>
     </div>
     <nav class="nav">

@@ -24,7 +24,8 @@ BNU-ToolBox 是面向北师大校园学习场景的 Windows 11 桌面工具箱�
 安装包尚未配置代码签名证书，Windows 可能显示“未知发布者”。出现此提示时，可选择
 “更多信息”后继续安装。
 
-安装程序会创建开始菜单和桌面快捷方式。首次启动后：
+安装程序会请求管理员权限，默认安装到 `C:\Program Files\BNU-ToolBox`，并创建开始菜单
+和桌面快捷方式。首次启动后：
 
 1. 在“全局设置”中填写北师大统一身份认证账号。
 2. 在校园网认证插件中填写独立的校园网账号和认证地址。
@@ -44,7 +45,7 @@ BNU-ToolBox 是面向北师大校园学习场景的 Windows 11 桌面工具箱�
 
 ## 用户数据
 
-程序文件默认安装在当前用户程序目录。可写数据统一保存在：
+程序文件默认安装到 `C:\Program Files\BNU-ToolBox`。可写数据统一保存在：
 
 ```text
 %LOCALAPPDATA%\BNU-ToolBox
@@ -96,7 +97,7 @@ powershell -ExecutionPolicy Bypass -File packaging\build.ps1
 产物：
 
 ```text
-dist\installer\BNU-ToolBox-Setup-0.1.0.exe
+dist\installer\BNU-ToolBox-Setup-0.1.1.exe
 ```
 
 ## 项目结构

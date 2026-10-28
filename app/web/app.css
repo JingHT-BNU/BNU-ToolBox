@@ -62,14 +62,9 @@ html, body, #app {
 .brand .logo {
   width: 34px;
   height: 34px;
-  border-radius: 9px;
-  background: linear-gradient(135deg, var(--bnu-toolbox-accent), var(--bnu-toolbox-accent-2));
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  font-weight: 800;
+  flex: 0 0 auto;
+  display: block;
+  object-fit: contain;
 }
 .brand small {
   display: block;

@@ -1,10 +1,9 @@
-"""教务抢课插件:轮询北师大教务系统课程名额并自动提交。
+"""教务抢课插件:持续轮询北师大教务系统课程名额并自动提交。
 
 配置示例:
 {
-  "mode": "auto",           // auto=轮询抢课, once=单次
   "courses": {"GEN06122": ["09","10"], "GEN01103": ["27"]},
-  "poll_interval": 2,
+  "poll_interval": 3,
   "headless": true,
   "username": "", "password": ""
 }
@@ -14,7 +13,7 @@ task 配置项由主程序 API 注入,用于抓取任务(与正常抢课互斥,�
              → majors.json(全局共用一份)
 - "courses": 抓取指定专业(specialty 配置)的开课课程列表
              → courses/<key>.json(每个用户通常只需自己专业的一份缓存)
-- 其他/缺省: 正常抢课流程(mode=auto/once)
+- 其他/缺省: 持续轮询抢课流程
 """
 from __future__ import annotations
 
@@ -564,7 +563,7 @@ def run_specialty_courses(ctx, specialty: dict | None = None) -> None:
         browser.quit()
 
 
-# ---------------- 正常抢课流程 ----------------
+# ---------------- 轮询抢课流程 ----------------
 
 def try_grab_course(ctx, browser, code: str, class_nums: list[str], attempt: int) -> bool:
     """在一轮轮询中尝试选课。返回是否成功提交。
@@ -610,17 +609,7 @@ def try_grab_course(ctx, browser, code: str, class_nums: list[str], attempt: int
     return False
 
 
-def run_once_mode(ctx, courses: dict) -> None:
-    browser = make_driver(ctx, headless=bool(ctx.cfg("headless", True)))
-    try:
-        login(ctx, browser)
-        for code, class_nums in courses.items():
-            try_grab_course(ctx, browser, code, class_nums, attempt=1)
-    finally:
-        browser.quit()
-
-
-def run_auto_mode(ctx, courses: dict, poll_interval: float) -> None:
+def run_polling(ctx, courses: dict, poll_interval: float) -> None:
     m = 0   # 连续异常次数
     n = 1   # 轮询轮次
     browser = None
@@ -684,22 +673,18 @@ def main() -> None:
         run_specialty_courses(ctx)
         return
 
-    mode = ctx.cfg("mode", "auto")
     try:
-        interval = float(ctx.cfg("poll_interval", 2))
+        interval = float(ctx.cfg("poll_interval", 3))
     except (TypeError, ValueError):
-        interval = 2.0
-    interval = min(60.0, max(0.5, interval))
+        interval = 3.0
+    interval = min(60.0, max(2.0, interval))
 
     courses = _normalize_courses(ctx.cfg("courses"))
     if not courses:
         ctx.log("未配置任何课程,退出(抓取课程列表请在配置界面选好专业后点「开始专业课程抓取」)")
         return
-    ctx.log(f"模式={mode}, 课程={list(courses)}, 间隔={interval}s")
-    if mode == "once":
-        run_once_mode(ctx, courses)
-    else:
-        run_auto_mode(ctx, courses, interval)
+    ctx.log(f"持续轮询课程={list(courses)}, 间隔={interval}s")
+    run_polling(ctx, courses, interval)
 
 
 if __name__ == "__main__":

@@ -15,15 +15,8 @@
   <!-- 基础运行参数 -->
   <div class="bnu-row">
     <div class="bnu-field">
-      <label>运行模式</label>
-      <select id="cg-mode">
-        <option value="auto">轮询选课(到名额自动提交)</option>
-        <option value="once">单次选课(仅提交一次)</option>
-      </select>
-    </div>
-    <div class="bnu-field">
-      <label>轮询间隔(秒)</label>
-      <input type="number" id="cg-poll" min="0.5" max="60" step="0.5" value="2">
+      <label>轮询间隔(秒，最低 2 秒)</label>
+      <input type="number" id="cg-poll" min="2" max="60" step="0.5" value="3">
     </div>
     <div class="bnu-field">
       <label>无头模式</label>
@@ -304,8 +297,8 @@
       courses[k] = m ? m.split(/[,，\s]+/).filter(Boolean) : [];
     });
     return {
-      mode: $("cg-mode").value,
-      poll_interval: Number($("cg-poll").value) || 2,
+      poll_interval: Math.min(
+        60, Math.max(2, Number($("cg-poll").value) || 3)),
       headless: $("cg-headless").checked,
       username: $("cg-username").value,
       password: $("cg-password").value,
@@ -633,9 +626,8 @@
   // ---------------- 初始化 ----------------
   (async function init() {
     var cfg = await Z.getConfig();
-    // 旧配置的 fetch_major 模式已移除, 统一归一化为 auto
-    $("cg-mode").value = cfg.mode === "once" ? "once" : "auto";
-    $("cg-poll").value = cfg.poll_interval != null ? cfg.poll_interval : 2;
+    $("cg-poll").value = cfg.poll_interval != null
+      ? Math.min(60, Math.max(2, Number(cfg.poll_interval) || 3)) : 3;
     $("cg-headless").checked = cfg.headless !== false;
     $("cg-username").value = cfg.username || "";
     $("cg-password").value = cfg.password || "";

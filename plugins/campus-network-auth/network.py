@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import platform
 import subprocess
 
@@ -13,6 +14,8 @@ def _run(command: list[str], timeout: float = 10.0) -> str:
         text=True,
         encoding="utf-8",
         errors="replace",
+        creationflags=(
+            subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
         timeout=timeout,
         check=False,
     )

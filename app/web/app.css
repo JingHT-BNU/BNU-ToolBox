@@ -476,6 +476,10 @@ html, body, #app {
 .bnu-btn.bnu-primary { background: var(--bnu-toolbox-accent); border-color: var(--bnu-toolbox-accent); color: #fff; }
 .bnu-btn.bnu-warning { background: var(--bnu-toolbox-warning); border-color: var(--bnu-toolbox-warning); color: #fff; }
 .bnu-hint { font-size: 12px; color: var(--bnu-toolbox-text-secondary); line-height: 1.6; }
+.bnu-hint.bnu-error {
+  color: var(--bnu-toolbox-danger);
+  font-weight: 600;
+}
 .bnu-alert {
   padding: 8px 12px;
   border-radius: 6px;

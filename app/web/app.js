@@ -161,6 +161,7 @@
     logs: {},                     // pluginId -> [ {line, cls} ]
     progress: {},                 // pluginId -> {done,total,workers,...}
     edgeStatus: null,
+    resources: null,
     edgeUpdating: false,
     detailConfig: null,
     detailSchema: [],
@@ -384,6 +385,7 @@
         await loadPlugins();
         await loadGlobal();
         await loadEdgeStatus();
+        await loadResources();
       });
 
       // 日志自动滚动
@@ -425,6 +427,14 @@
             edge_path: "",
             driver_path: "",
           };
+        }
+      }
+
+      async function loadResources() {
+        try {
+          state.resources = await api("/system/resources");
+        } catch (e) {
+          state.resources = null;
         }
       }
 
@@ -890,8 +900,18 @@
           <el-form-item label="默认无头模式">
             <el-switch v-model="state.globalConfig.general.headless_default" />
           </el-form-item>
-          <el-form-item label="BNU刷课默认并发">
-            <el-input-number v-model="state.globalConfig.general.default_workers" :min="1" :max="32" />
+          <el-form-item label="系统建议并发">
+            <span v-if="state.resources">
+              {{ state.resources.recommended_workers }} 个浏览器
+              <span class="form-hint">
+                （{{ state.resources.physical_cores }} 物理核心 /
+                {{ state.resources.total_memory_gb }} GB 内存）
+              </span>
+            </span>
+            <span v-else class="form-hint">正在检测硬件资源</span>
+            <div class="form-hint" v-if="state.resources">
+              {{ state.resources.formula }}。可在 BNU刷课详情页按需修改。
+            </div>
           </el-form-item>
           <el-form-item label="默认播放倍速">
             <el-input-number v-model="state.globalConfig.general.default_speedup" :min="1" :max="16" :step="0.5" />

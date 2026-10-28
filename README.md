@@ -13,7 +13,7 @@ BNU-ToolBox 是面向北师大校园学习场景的 Windows 11 桌面工具箱�
 | 插件 | 功能 |
 |---|---|
 | 教务抢课 | 按专业获取课程目录，轮询课程名额并支持单次或轮询提交。 |
-| BNU刷课 | 统一管理师道云与 SPOC 课程、章节、视频、测试和互动任务。 |
+| BNU刷课 | 统一管理师道云与 SPOC 课程，支持并行获取课程详情、混合并发刷课、测试与互动任务。 |
 | 校园网认证 | 自动检测有线/无线入口并完成认证，可配置独立开机自启。 |
 
 ## 安装
@@ -97,7 +97,7 @@ powershell -ExecutionPolicy Bypass -File packaging\build.ps1
 产物：
 
 ```text
-dist\installer\BNU-ToolBox-Setup-0.1.1.exe
+dist\installer\BNU-ToolBox-Setup-0.1.2.exe
 ```
 
 ## 项目结构

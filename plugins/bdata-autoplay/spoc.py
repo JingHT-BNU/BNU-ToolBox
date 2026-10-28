@@ -4,7 +4,6 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass
-from typing import Callable
 from urllib.parse import urlparse
 
 from selenium.common.exceptions import WebDriverException
@@ -403,27 +402,6 @@ def cache_course(ctx, driver, card: CourseCard, url: str,
         f"已缓存 SPOC 课程 {card.title}: {video_count} 个视频, "
         f"{exam_count} 个作业/测试")
     return course
-
-
-def cache_all_courses(ctx, driver, progress: Callable[[int, int, str], None],
-                      save_course: Callable[[dict], None]) -> int:
-    cards = prepare_course_list(driver)
-    if not cards:
-        return 0
-    failed = 0
-    for position, card in enumerate(cards, start=1):
-        progress(position - 1, len(cards), card.title)
-        try:
-            prepare_course_list(driver)
-            url, sign, cid = open_course_card(
-                driver, card.index, expected_title=card.title)
-            course = cache_course(ctx, driver, card, url, sign, cid)
-            save_course(course)
-        except (RuntimeError, WebDriverException) as exc:
-            failed += 1
-            ctx.log(f"SPOC 课程缓存失败({card.title}): {exc}")
-    progress(len(cards), len(cards), "SPOC 课程缓存完成")
-    return failed
 
 
 def _parse_time(text: str) -> float:

@@ -35,6 +35,7 @@ def _fernet_key_path() -> Path:
 def _secure_key_file(path: Path) -> None:
     if os.name == "nt":
         user = os.environ.get("USERNAME") or getuser()
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         subprocess.run(
             [
                 "icacls", str(path), "/inheritance:r",
@@ -42,6 +43,7 @@ def _secure_key_file(path: Path) -> None:
             ],
             capture_output=True,
             check=True,
+            creationflags=creationflags,
             timeout=10,
         )
     else:
@@ -230,7 +232,6 @@ GLOBAL_DEFAULTS: dict = {
     "account": {"username": "", "password": ""},
     "general": {
         "headless_default": True,
-        "default_workers": 8,
         "default_speedup": 3.0,
         "cookie_life_days": 7,
     },

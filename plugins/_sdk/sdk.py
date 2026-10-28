@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -126,7 +127,13 @@ def make_driver(ctx: PluginContext, headless: bool | None = None):
     if headless is None:
         headless = bool(ctx.cfg("headless", True))
     driver_path = ensure_edge_driver(log=ctx.log)
-    service = EdgeService(str(driver_path))
+    service = EdgeService(
+        str(driver_path),
+        popen_kw={
+            "creation_flags": getattr(
+                subprocess, "CREATE_NO_WINDOW", 0),
+        },
+    )
     driver = webdriver.Edge(
         service=service, options=make_edge_options(headless))
     return _configure_window(driver, headless)

@@ -25,6 +25,8 @@
     <div class="bnu-field">
       <label>并发浏览器数</label>
       <input type="number" id="bnu-workers" min="1" step="1">
+      <span class="bnu-hint" id="bnu-worker-guidance"></span>
+      <span class="bnu-hint bnu-error" id="bnu-worker-warning" hidden></span>
     </div>
     <div class="bnu-field">
       <label>播放倍速</label>
@@ -151,6 +153,8 @@
   var progressTimer = null;
   var saveTimer = null;
   var latestProgress = null;
+  var resources = null;
+  var acceptedHighWorkers = 0;
 
   function showMsg(text, cls) {
     var el = $("bnu-msg");
@@ -554,6 +558,59 @@
     }, 250);
   }
 
+  function updateWorkerGuidance() {
+    if (!resources) return;
+    var input = $("bnu-workers");
+    var current = Math.max(1, Number(input.value) || 1);
+    var recommended = Math.max(
+      1, Number(resources.recommended_workers) || 1);
+    var threshold = Math.max(
+      recommended * 2, Number(resources.warning_threshold) || 0);
+    var crawlCount = Math.ceil(current * 1.5);
+    $("bnu-worker-guidance").textContent =
+      "系统建议 " + recommended + " 个（" +
+      resources.physical_cores + " 物理核心 / " +
+      resources.total_memory_gb + " GB 内存）；" +
+      "当前刷课 " + current + " 个，获取课程详情将启动 " +
+      crawlCount + " 个浏览器。";
+    var warning = $("bnu-worker-warning");
+    warning.hidden = current < threshold;
+    warning.textContent = "当前 " + current +
+      " 个浏览器已超过建议值的两倍，可能出现明显卡顿、浏览器启动失败或刷课不稳定。";
+  }
+
+  async function workerCountChanged() {
+    if (!resources) return;
+    var input = $("bnu-workers");
+    var current = Math.max(1, Math.round(Number(input.value) || 1));
+    var recommended = Math.max(
+      1, Number(resources.recommended_workers) || 1);
+    var threshold = Math.max(
+      recommended * 2, Number(resources.warning_threshold) || 0);
+    if (current >= threshold && acceptedHighWorkers !== current) {
+      var proceed = await Z.confirm(
+        "当前设置 " + current + " 个刷课浏览器，已达到或超过系统建议值的两倍（" +
+        recommended + " 个）。同时启动大量浏览器可能造成窗口卡顿、视频掉帧、" +
+        "服务器记录延迟，甚至 WebDriver 启动失败。确定继续吗？",
+        "高并发稳定性警告",
+        {
+          confirmButtonText: "仍然使用",
+          cancelButtonText: "调低并继续",
+          closeOnClickModal: false,
+          closeOnPressEscape: false
+        });
+      if (!proceed) {
+        input.value = String(Math.max(1, threshold - 1));
+        current = Number(input.value);
+      } else {
+        acceptedHighWorkers = current;
+      }
+    }
+    if (current < threshold) acceptedHighWorkers = 0;
+    updateWorkerGuidance();
+    await save(false, true, true);
+  }
+
   async function loadCache(plans) {
     try {
       var data = await Z.api("plugins/" + pluginId + "/tasks");
@@ -858,11 +915,24 @@
 
   async function init() {
     var cfg = await Z.getConfig();
+    try {
+      resources = await Z.api("system/resources");
+    } catch (e) {
+      resources = {
+        recommended_workers: Math.max(
+          1, Math.round((navigator.hardwareConcurrency || 4) * 0.8)),
+        warning_threshold: Math.max(
+          2, Math.round((navigator.hardwareConcurrency || 4) * 1.6)),
+        physical_cores: Math.max(
+          1, Math.round((navigator.hardwareConcurrency || 4) / 2)),
+        total_memory_gb: "未知"
+      };
+    }
     $("bnu-auto-answer").checked = cfg.auto_answer === true;
     $("bnu-comment-reply").checked = cfg.comment_reply === true;
     $("bnu-full-auto").checked = cfg.full_auto === true;
     $("bnu-unfinished").checked = cfg.only_unfinished !== false;
-    $("bnu-workers").value = cfg.workers || 4;
+    $("bnu-workers").value = cfg.workers || resources.recommended_workers;
     $("bnu-speedup").value = Math.min(3, cfg.speedup || 3);
     $("bnu-tolerance").value = cfg.completion_tolerance != null
       ? cfg.completion_tolerance : 3;
@@ -888,19 +958,21 @@
     });
     $("bnu-survey-strategy").addEventListener("change", syncSurveyStrategy);
     [
-      "bnu-headless", "bnu-unfinished", "bnu-workers", "bnu-speedup",
+      "bnu-headless", "bnu-unfinished", "bnu-speedup",
       "bnu-tolerance", "bnu-auto-answer", "bnu-comment-reply",
       "bnu-api-url", "bnu-api-key", "bnu-model-id",
       "bnu-survey-strategy", "bnu-survey-positive", "bnu-survey-negative"
     ].forEach(function (id) {
       $(id).addEventListener("change", scheduleSave);
     });
+    $("bnu-workers").addEventListener("change", workerCountChanged);
     $("bnu-refresh").addEventListener("click", refreshCourses);
     $("bnu-save").addEventListener("click", function () { save(true); });
     $("bnu-approve").addEventListener("click", function () { decide("approve"); });
     $("bnu-skip").addEventListener("click", function () { decide("skip"); });
     syncAutomation();
     syncSurveyStrategy();
+    updateWorkerGuidance();
     await loadCache(cfg.course_plans || {});
     await pollReviewAndProgress();
     window.BnuToolBoxBnuSave = function () {

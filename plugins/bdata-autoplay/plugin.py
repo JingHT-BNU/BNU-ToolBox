@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import queue
 import random
@@ -18,6 +19,7 @@ import tempfile
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -35,6 +37,7 @@ from selenium.webdriver.common.action_chains import ActionChains  # noqa: E402
 from selenium.webdriver.common.by import By  # noqa: E402
 from selenium.webdriver.common.keys import Keys  # noqa: E402
 
+from app.core.resources import recommended_worker_count  # noqa: E402
 from llm import (  # noqa: E402
     LLMError,
     generate_interaction,
@@ -158,6 +161,25 @@ def positive_int(value: object, default: int) -> int:
         return max(1, int(float(value)))
     except (TypeError, ValueError, OverflowError):
         return max(1, default)
+
+
+def configured_worker_count(ctx: PluginContext) -> int:
+    """Use the saved playback count or the hardware-derived default."""
+    try:
+        number = int(float(ctx.cfg("workers", 0)))
+    except (TypeError, ValueError, OverflowError):
+        number = 0
+    if number > 0:
+        return number
+    return recommended_worker_count()
+
+
+def crawl_worker_count(ctx: PluginContext, course_count: int) -> int:
+    """Use 1.5x playback concurrency, rounded up, for course discovery."""
+    if course_count <= 0:
+        return 0
+    requested = math.ceil(configured_worker_count(ctx) * 1.5)
+    return min(course_count, max(1, requested))
 
 
 def completion_gap(media_duration: float, tolerance: float) -> float:
@@ -1037,79 +1059,246 @@ def cache_course_tasks(ctx: PluginContext, driver, course_url: str,
     }
 
 
-def refresh_task_cache(ctx: PluginContext, driver,
-                       discovered: list[dict]) -> dict:
-    cache = load_task_cache(ctx)
-    errors = 0
-    current_ids = {str(course["cid"]) for course in discovered}
-    for index, course_info in enumerate(discovered, start=1):
-        course_url = course_info["url"]
-        cid = course_info["cid"]
-        title = course_info.get("title") or cid
-        ctx.progress(
-            stage="cache", done=index - 1, total=len(discovered),
-            title=f"读取任务缓存: {title}")
+def _crawl_bdata_parallel(
+    ctx: PluginContext,
+    courses: list[dict],
+    cookies: list[dict],
+    worker_count: int,
+    report=None,
+) -> tuple[dict[str, dict], dict[str, str]]:
+    """Fetch BData course details with a fixed-size browser worker pool."""
+    if not courses:
+        return {}, {}
+    tasks: queue.Queue[dict] = queue.Queue()
+    for course in courses:
+        tasks.put(course)
+    results: dict[str, dict] = {}
+    failures: dict[str, str] = {}
+    state_lock = threading.Lock()
+
+    def worker(worker_id: int) -> None:
+        driver = None
         try:
-            course = cache_course_tasks(ctx, driver, course_url, cid)
-            cache["bdata"][cid] = course
-            cache["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-            save_task_cache(ctx, cache)
-            ctx.log(
-                f"已缓存课程 {course['name']}: "
-                f"{len(course['tasks'])} 个任务, "
-                f"{len(course['chapters'])} 个章节")
+            driver = make_driver(
+                ctx, headless=bool(ctx.cfg("headless", True)))
+            driver.set_page_load_timeout(60)
+            ensure_authenticated(ctx, driver, discover_courses=False)
+            while True:
+                try:
+                    course_info = tasks.get_nowait()
+                except queue.Empty:
+                    return
+                cid = str(course_info["cid"])
+                course_name = normalize_title(
+                    course_info.get("title")) or cid
+                try:
+                    course = cache_course_tasks(
+                        ctx, driver, course_info["url"], cid)
+                    with state_lock:
+                        results[cid] = course
+                    ctx.log(
+                        f"并行进程 #{worker_id} 已缓存师道云课程 "
+                        f"{course['name']}: {len(course['tasks'])} 个任务, "
+                        f"{len(course['chapters'])} 个章节")
+                    if report:
+                        report(f"已读取 {course['name']}")
+                except (RuntimeError, WebDriverException) as exc:
+                    with state_lock:
+                        failures[cid] = str(exc)
+                    ctx.log(f"课程任务缓存失败({course_name}): {exc}")
+                    if report:
+                        report(f"读取失败 {course_name}")
         except (RuntimeError, WebDriverException) as exc:
-            errors += 1
-            ctx.log(f"课程任务缓存失败({cid}): {exc}")
-    ctx.progress(
-        stage="cache", done=len(discovered), total=len(discovered),
-        title="任务缓存完成")
-    if errors == 0:
-        cache["bdata"] = {
-            cid: course for cid, course in cache["bdata"].items()
-            if cid in current_ids
-        }
-    cache["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-    save_task_cache(ctx, cache)
-    if errors == len(discovered):
-        raise RuntimeError("全部课程任务缓存失败")
-    return cache
+            ctx.log(f"师道云并行进程 #{worker_id} 初始化失败: {exc}")
+        finally:
+            if driver is not None:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+
+    with ThreadPoolExecutor(
+            max_workers=worker_count,
+            thread_name_prefix="bdata-crawl") as pool:
+        futures = [
+            pool.submit(worker, worker_id)
+            for worker_id in range(1, worker_count + 1)
+        ]
+        for future in futures:
+            future.result()
+
+    for course in courses:
+        cid = str(course["cid"])
+        if cid not in results and cid not in failures:
+            failures[cid] = "没有可用的并行浏览器"
+    return results, failures
 
 
-def refresh_spoc_cache(ctx: PluginContext, driver) -> tuple[dict, int, int]:
-    cache = load_task_cache(ctx)
-    discovered_urls: set[str] = set()
+def _crawl_spoc_parallel(
+    ctx: PluginContext,
+    cards: list[spoc_platform.CourseCard],
+    cookies: list[dict],
+    worker_count: int,
+    report=None,
+) -> tuple[dict[str, dict], dict[str, str]]:
+    """Fetch SPOC course details with a fixed-size browser worker pool."""
+    if not cards:
+        return {}, {}
+    tasks: queue.Queue[spoc_platform.CourseCard] = queue.Queue()
+    for card in cards:
+        tasks.put(card)
+    results: dict[str, dict] = {}
+    failures: dict[str, str] = {}
+    handled_indexes: set[int] = set()
+    state_lock = threading.Lock()
 
-    def report(done: int, total: int, title: str) -> None:
+    def worker(worker_id: int) -> None:
+        driver = None
+        try:
+            driver = make_driver(
+                ctx, headless=bool(ctx.cfg("headless", True)))
+            driver.set_page_load_timeout(60)
+            spoc_platform.ensure_login(ctx, driver, cookies)
+            while True:
+                try:
+                    card = tasks.get_nowait()
+                except queue.Empty:
+                    return
+                try:
+                    spoc_platform.prepare_course_list(driver)
+                    url, sign, cid = spoc_platform.open_course_card(
+                        driver, card.index, expected_title=card.title)
+                    course = spoc_platform.cache_course(
+                        ctx, driver, card, url, sign, cid)
+                    url = str(course.get("url") or url)
+                    with state_lock:
+                        results[url] = course
+                        handled_indexes.add(card.index)
+                    if report:
+                        report(f"已读取 {card.title}")
+                except (RuntimeError, WebDriverException) as exc:
+                    key = str(card.index)
+                    with state_lock:
+                        failures[key] = f"{card.title}: {exc}"
+                        handled_indexes.add(card.index)
+                    ctx.log(f"SPOC 课程缓存失败({card.title}): {exc}")
+                    if report:
+                        report(f"读取失败 {card.title}")
+        except (RuntimeError, WebDriverException) as exc:
+            ctx.log(f"SPOC 并行进程 #{worker_id} 初始化失败: {exc}")
+        finally:
+            if driver is not None:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+
+    with ThreadPoolExecutor(
+            max_workers=worker_count,
+            thread_name_prefix="spoc-crawl") as pool:
+        futures = [
+            pool.submit(worker, worker_id)
+            for worker_id in range(1, worker_count + 1)
+        ]
+        for future in futures:
+            future.result()
+
+    for card in cards:
+        key = str(card.index)
+        if card.index not in handled_indexes:
+            failures[key] = f"{card.title}: 没有可用的并行浏览器"
+    return results, failures
+
+
+def _split_crawl_workers(
+    total_workers: int,
+    bdata_courses: int,
+    spoc_courses: int,
+) -> tuple[int, int]:
+    if not bdata_courses:
+        return 0, min(total_workers, spoc_courses)
+    if not spoc_courses:
+        return min(total_workers, bdata_courses), 0
+    bdata_workers = min(
+        bdata_courses, max(1, total_workers * bdata_courses
+                           // (bdata_courses + spoc_courses)))
+    spoc_workers = min(spoc_courses, max(1, total_workers - bdata_workers))
+    bdata_workers = min(
+        bdata_courses, max(1, total_workers - spoc_workers))
+    return bdata_workers, spoc_workers
+
+
+def refresh_all_caches_parallel(
+    ctx: PluginContext,
+    bdata_courses: list[dict],
+    spoc_cards: list[spoc_platform.CourseCard],
+) -> tuple[dict, dict[str, int]]:
+    """Refresh both platforms concurrently and persist the merged cache once."""
+    total_courses = len(bdata_courses) + len(spoc_cards)
+    total_workers = crawl_worker_count(ctx, total_courses)
+    bdata_workers, spoc_workers = _split_crawl_workers(
+        total_workers, len(bdata_courses), len(spoc_cards))
+    ctx.log(
+        f"并行获取课程详情: {total_courses} 门课程，"
+        f"启动 {bdata_workers + spoc_workers} 个浏览器"
+        f"（刷课并发 {configured_worker_count(ctx)} 的 1.5 倍）")
+    cookies = load_cookies(ctx)
+    progress_lock = threading.Lock()
+    progress_done = 0
+
+    def report(title: str) -> None:
+        nonlocal progress_done
+        with progress_lock:
+            progress_done += 1
+            current = progress_done
         ctx.progress(
-            stage="cache", done=done, total=total,
-            title=f"读取 SPOC 课程: {title}")
+            stage="cache", done=current, total=total_courses,
+            title=title)
 
-    def save_course(course: dict) -> None:
-        url = str(course.get("url") or "")
-        discovered_urls.add(url)
+    with ThreadPoolExecutor(max_workers=2) as starters:
+        bdata_future = starters.submit(
+            _crawl_bdata_parallel,
+            ctx, bdata_courses, cookies, bdata_workers, report,
+        ) if bdata_workers else None
+        spoc_future = starters.submit(
+            _crawl_spoc_parallel,
+            ctx, spoc_cards, cookies, spoc_workers, report,
+        ) if spoc_workers else None
+        bdata_results, bdata_failures = (
+            bdata_future.result() if bdata_future else ({}, {}))
+        spoc_results, spoc_failures = (
+            spoc_future.result() if spoc_future else ({}, {}))
+
+    cache = load_task_cache(ctx)
+    for course in bdata_courses:
+        cid = str(course["cid"])
+        if cid in bdata_results:
+            cache["bdata"][cid] = bdata_results[cid]
+    for url, course in spoc_results.items():
         cache["spoc"] = [
             item for item in cache["spoc"]
             if item.get("url") != url
         ]
         cache["spoc"].append(course)
-        cache["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-        save_task_cache(ctx, cache)
 
-    try:
-        failed = spoc_platform.cache_all_courses(
-            ctx, driver, report, save_course)
-    except (RuntimeError, WebDriverException) as exc:
-        ctx.log(f"SPOC 全量课程爬取失败: {exc}")
-        return cache, 0, 1
-    if discovered_urls and failed == 0:
+    if not bdata_failures:
+        current_cids = {str(course["cid"]) for course in bdata_courses}
+        cache["bdata"] = {
+            cid: course for cid, course in cache["bdata"].items()
+            if cid in current_cids
+        }
+    if not spoc_failures:
+        current_urls = set(spoc_results)
         cache["spoc"] = [
             course for course in cache["spoc"]
-            if course.get("url") in discovered_urls
+            if course.get("url") in current_urls
         ]
-        cache["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-        save_task_cache(ctx, cache)
-    return cache, len(discovered_urls), failed
+    cache["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    save_task_cache(ctx, cache)
+    return cache, {
+        "bdata_failed": len(bdata_failures),
+        "spoc_failed": len(spoc_failures),
+    }
 
 
 def _wait_task_dialog_closed(driver, timeout: float = 1.8) -> bool:
@@ -2818,7 +3007,7 @@ def run_combined(ctx: PluginContext, driver) -> None:
 
     tracker = None
     if jobs:
-        workers = min(max(1, positive_int(ctx.cfg("workers", 2), 2)), len(jobs))
+        workers = min(configured_worker_count(ctx), len(jobs))
         ctx.log(
             f"开始混合播放视频: {len(jobs)} 个, {workers} 并发")
         tracker = run_parallel(
@@ -2878,36 +3067,37 @@ def main() -> None:
             run_combined(ctx, driver)
             return
 
+        bdata_ready = False
         bdata_courses: list[dict] = []
         spoc_ready = False
+        spoc_cards: list[spoc_platform.CourseCard] = []
         try:
             bdata_courses = ensure_authenticated(ctx, driver)
+            bdata_ready = True
         except (RuntimeError, WebDriverException) as exc:
             ctx.log(f"师道云登录或课程发现失败: {exc}")
         cached = load_cookies(ctx)
         try:
             spoc_platform.ensure_login(ctx, driver, cached)
+            spoc_cards = spoc_platform.prepare_course_list(driver)
             spoc_ready = True
         except (RuntimeError, WebDriverException) as exc:
             ctx.log(f"SPOC 登录失败: {exc}")
         save_cookies(ctx, driver.get_cookies())
 
-        cache = load_task_cache(ctx)
-        bdata_ok = False
-        if bdata_courses:
-            try:
-                cache = refresh_task_cache(
-                    ctx, driver, bdata_courses)
-                bdata_ok = True
-            except (RuntimeError, WebDriverException) as exc:
-                ctx.log(f"师道云课程缓存失败: {exc}")
-        if spoc_ready:
-            cache, _spoc_count, spoc_failed = refresh_spoc_cache(
-                ctx, driver)
-        else:
-            spoc_failed = 1
-        if not bdata_ok and not spoc_ready:
+        if not bdata_ready and not spoc_ready:
             raise RuntimeError("SPOC 和师道云课程详情均获取失败")
+        # The discovery browser has completed login and list traversal.  Close
+        # it before starting the fixed-size crawl pool so the advertised
+        # concurrency is not exceeded by an idle extra browser.
+        try:
+            driver.quit()
+        except Exception:
+            pass
+        driver = None
+
+        cache, failures = refresh_all_caches_parallel(
+            ctx, bdata_courses, spoc_cards)
         bdata_count = len(cache.get("bdata", {}))
         spoc_count = len(cache.get("spoc", []))
         task_count = sum(
@@ -2917,13 +3107,14 @@ def main() -> None:
         ctx.status(
             f"课程详情已更新: 师道云 {bdata_count} 门/"
             f"{task_count} 个任务，SPOC {spoc_count} 门课程，"
-            f"失败平台任务 {spoc_failed}",
+            f"失败课程 {failures['bdata_failed'] + failures['spoc_failed']}",
             done=True)
     finally:
-        try:
-            driver.quit()
-        except Exception:
-            pass
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

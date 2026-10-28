@@ -19,6 +19,7 @@ from .core.config_store import GlobalConfig, PluginConfigStore
 from .core import course_cache
 from .core.edge_driver import edge_status, ensure_edge_driver
 from .core.plugin_manager import PluginManager, PluginError, PLUGINS_DIR
+from .core.resources import resource_profile
 from .core.runner import Runner, get_bus
 from .version import __version__
 
@@ -188,6 +189,11 @@ def get_system_info():
     }
 
 
+@api_router.get("/system/resources")
+def get_system_resources():
+    return resource_profile().to_dict()
+
+
 @api_router.post("/system/edge/driver")
 def update_edge_driver():
     try:
@@ -230,6 +236,8 @@ def get_plugin_config(plugin_id: str):
     except PluginError as e:
         raise HTTPException(404, str(e)) from e
     cfg = PluginConfigStore(plugin_id).get_masked()
+    if plugin_id == _BDATA_ID and not cfg.get("workers"):
+        cfg["workers"] = resource_profile().recommended_workers
     # 未配置过的字段用清单里的默认值填充,前端表单才有初始显示
     for f in plugin.get("config_schema", []):
         key = f.get("key")
@@ -426,6 +434,8 @@ def _run_campus_autostart(script: Path, action: str) -> dict:
             text=True,
             encoding="utf-8",
             errors="replace",
+            creationflags=(
+                subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0),
             timeout=30,
             check=False,
         )

@@ -139,6 +139,7 @@ class PluginProcess:
                 subprocess.run(
                     ["taskkill", "/F", "/T", "/PID", str(self.proc.pid)],
                     capture_output=True, timeout=10, check=False,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
                 )
             else:
                 os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)

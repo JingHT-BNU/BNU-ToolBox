@@ -32,6 +32,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 WEB_DIR = ROOT / "app" / "web"
 INSTANCE_MUTEX = "Local\\BNU-ToolBox-Desktop"
+APP_WINDOW_PROFILE = DATA_DIR / "app-window"
 
 
 def setup_consoleless_io() -> None:
@@ -89,12 +90,44 @@ def wait_http(url: str, timeout: float = 15.0) -> bool:
     return False
 
 
+def maximize_window_later(
+    title: str = "BNU-ToolBox 工具集",
+    timeout: float = 8.0,
+) -> None:
+    """Reinforce maximized state after Edge has created the app window."""
+    if os.name != "nt":
+        return
+    user32 = ctypes.windll.user32
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        matches: list[int] = []
+
+        @ctypes.WINFUNCTYPE(
+            ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        def visit(hwnd, _lparam):
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length <= 0 or not user32.IsWindowVisible(hwnd):
+                return True
+            buffer = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(hwnd, buffer, length + 1)
+            if buffer.value == title:
+                matches.append(hwnd)
+            return True
+
+        user32.EnumWindows(visit, 0)
+        if matches:
+            user32.ShowWindow(matches[-1], 3)  # SW_MAXIMIZE
+            return
+        time.sleep(0.2)
+
+
 def open_window_later(url: str) -> None:
     """等服务可访问后再开窗口,避免弹出'拒绝连接'。"""
     if not wait_http(url):
         print(f"服务未能在预期时间内就绪: {url}", flush=True)
         return
     if os.name == "nt":
+        APP_WINDOW_PROFILE.mkdir(parents=True, exist_ok=True)
         for exe in (
             os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
             os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
@@ -102,9 +135,15 @@ def open_window_later(url: str) -> None:
             if os.path.exists(exe):
                 try:
                     subprocess.Popen(
-                        [exe, "--app=" + url],
+                        [
+                            exe,
+                            f"--user-data-dir={APP_WINDOW_PROFILE}",
+                            "--app=" + url,
+                            "--start-maximized",
+                        ],
                         creationflags=subprocess.DETACHED_PROCESS,
                     )
+                    maximize_window_later()
                     return
                 except OSError:
                     continue

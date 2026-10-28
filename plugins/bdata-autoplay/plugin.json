@@ -1,7 +1,7 @@
 {
   "id": "bdata-autoplay",
   "name": "BNU刷课",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "description": "使用全局北师大统一认证账号统一管理师道云与 SPOC 课程，支持课程详情缓存、章节筛选、混合并发刷课，以及师道云自动答题和评论回复。",
   "entry": "plugin.py",
   "config_ui": "ui.html",
@@ -41,10 +41,10 @@
       "key": "workers",
       "label": "并发浏览器数",
       "type": "number",
-      "default": 2,
+      "default": 8,
       "min": 1,
       "step": 1,
-      "hint": "每个浏览器进程独立播放一个视频；并发数按任务数量和本机资源设置"
+      "hint": "默认根据物理核心数和可用内存自动建议；获取课程详情使用 1.5 倍并发"
     },
     {
       "key": "speedup",
